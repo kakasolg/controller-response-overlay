@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Controller Response Overlay</title>
+<style>
+:root {
+  --base: rgba(18, 20, 26, 0.55);
+  --edge: rgba(255, 255, 255, 0.38);
+  --on: #f2f2f2;
+  --on-ink: #111318;
+  --ink: #e8e8ea;
+  --muted: rgba(232, 232, 234, 0.62);
+  /* lamp colours (Okabe-Ito, colour-blind friendly); each state also has its own shape */
+  --lamp-gray: #9a9a9a;
+  --lamp-green: #009e73;
+  --lamp-yellow: #f0e442;
+  --lamp-red: #d55e00;
+  --lamp-edge: #0b0c0f;
+}
+html, body { margin: 0; background: transparent; overflow: hidden; }
+body.bg-dark { background: #16181d; }
+body.bg-light { background: #d9dbe1; }
+#root { display: inline-block; padding: 4px; transition: opacity 0.15s; }
+#root.hidden { opacity: 0; }
+svg { display: block; overflow: visible; }
+.streamer svg { filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.9)); }
+.base { fill: var(--base); stroke: var(--edge); stroke-width: 1.2; }
+.base.on { fill: var(--on); stroke: var(--on); }
+.txt { font-family: system-ui, "Segoe UI", sans-serif; font-weight: 600; fill: var(--muted);
+       text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.txt.on { fill: var(--on-ink); }
+.gate { fill: var(--base); stroke: var(--edge); stroke-width: 1.2; }
+.gate.on { stroke: var(--on); stroke-width: 2.6; }
+.dz { fill: none; stroke: var(--edge); stroke-dasharray: 2 2; opacity: 0.55; }
+.stick-line { stroke: var(--on); stroke-width: 2; stroke-linecap: round; }
+.stick-dot { fill: var(--on); }
+.trig-fill { fill: var(--on); }
+.label, .info { font-family: system-ui, "Segoe UI", sans-serif; font-weight: 500; fill: var(--muted); dominant-baseline: central; }
+.label { text-anchor: end; }
+.lamp > * { stroke: var(--lamp-edge); stroke-width: 1; }   /* no fade or blink: the lamp must never depend on an animation running */
+.lamp > .gray { fill: none; stroke: var(--lamp-gray); stroke-width: 1.5; }
+.lamp > .green { fill: var(--lamp-green); }
+.lamp > .yellow { fill: var(--lamp-yellow); }
+.lamp > .red { fill: var(--lamp-red); }
+#debug { display: none; margin-top: 4px; padding: 4px 6px; font: 11px ui-monospace, Consolas, monospace;
+         color: var(--ink); background: rgba(0, 0, 0, 0.65); white-space: pre; }
+.debug #debug { display: block; }
+@media (prefers-reduced-motion: reduce) { #root { transition: none; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+"use strict";
+// ── options (query string) ─────────────────────────────────────────
+const P = new URLSearchParams(location.search);
+const LAYOUT = ["full", "compact", "streamer"].includes(P.get("layout")) ? P.get("layout") : "full";
+const SLOT = /^[0-3]$/.test(P.get("slot") || "") ? P.get("slot") : "auto";
+const LABEL = { response: "Response", ko: "반응" }[P.get("label")] || "";
+const INFO = P.get("info") === "1";
+const DEBUG = P.get("debug") === "1";
+const SCALE = Math.min(6, Math.max(0.25, parseFloat(P.get("scale")) || (LAYOUT === "streamer" ? 1.5 : 1)));
+if (P.get("bg") === "dark" || P.get("bg") === "light") document.body.classList.add("bg-" + P.get("bg"));
+
+const STALE_MS = 1500;          // no message for this long → gray, inputs shown neutral (server heartbeat is 0.5 s)
+const AXIS = 32767, TRIG = 255, DZ_L = 7849, DZ_R = 8689;
+const BTN = { up: 0x1, down: 0x2, left: 0x4, right: 0x8, start: 0x10, back: 0x20, ls: 0x40, rs: 0x80,
+              lb: 0x100, rb: 0x200, a: 0x1000, b: 0x2000, x: 0x4000, y: 0x8000 };
+
+// ── geometry (viewBox units) ───────────────────────────────────────
+const FULL = {
+  w: 360, h: 210, font: 10, small: 9,
+  lamp: { x: 349, y: 9, r: 5 }, label: { x: 340, y: 9 },
+  lt: { x: 12, y: 22, w: 12, h: 58, text: "LT" }, rt: { x: 336, y: 22, w: 12, h: 58, text: "RT" },
+  lb: { x: 34, y: 22, w: 64, h: 18 }, rb: { x: 262, y: 22, w: 64, h: 18 },
+  ls: { x: 80, y: 105, r: 30 }, rs: { x: 232, y: 160, r: 30 },
+  dpad: { x: 128, y: 160, s: 14 }, face: { x: 280, y: 105, d: 22, r: 10 },
+  back: { x: 158, y: 105, w: 18, h: 10 }, start: { x: 202, y: 105, w: 18, h: 10 },
+  info: { x: 12, y: 203 },
+};
+const COMPACT = {
+  w: 200, h: 72, font: 7, small: 7,
+  lamp: { x: 194, y: 6, r: 3.5 }, label: { x: 188, y: 6 },
+  lt: { x: 3, y: 14, w: 6, h: 54 }, rt: { x: 191, y: 14, w: 6, h: 54 },
+  lb: { x: 58, y: 3, w: 26, h: 9 }, rb: { x: 116, y: 3, w: 26, h: 9 },
+  ls: { x: 36, y: 42, r: 22 }, rs: { x: 164, y: 42, r: 22 },
+  dpad: { x: 78, y: 46, s: 9 }, face: { x: 122, y: 44, d: 11, r: 5.5 },
+};
+const G = LAYOUT === "compact" ? COMPACT : FULL;
+
+// ── build the SVG once ─────────────────────────────────────────────
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const root = document.getElementById("root");
+root.classList.add(LAYOUT);
+if (DEBUG) root.classList.add("debug");
+const svg = el("svg", { viewBox: `0 0 ${G.w} ${G.h}`, width: G.w * SCALE, height: G.h * SCALE, role: "img",
+                        "aria-label": "controller state" }, root);
+const dbg = document.createElement("div"); dbg.id = "debug"; root.appendChild(dbg);
+
+const E = { btn: {} };
+function button(name, shape, text, size) {
+  const t = text ? el("text", { class: "txt", x: shape.cx, y: shape.cy, "font-size": size || G.font }, null) : null;
+  if (t) t.textContent = text;
+  E.btn[name] = { shape: shape.node, text: t };
+  if (t) svg.appendChild(t);
+}
+function rect(name, b, text, rx) {
+  const node = el("rect", { class: "base", x: b.x, y: b.y, width: b.w, height: b.h, rx: rx ?? b.h / 2 }, svg);
+  button(name, { node, cx: b.x + b.w / 2, cy: b.y + b.h / 2 }, text);
+}
+function circle(name, x, y, r, text) {
+  const node = el("circle", { class: "base", cx: x, cy: y, r }, svg);
+  button(name, { node, cx: x, cy: y }, text);
+}
+function trigger(name, b) {
+  el("rect", { class: "base", x: b.x, y: b.y, width: b.w, height: b.h, rx: 2 }, svg);
+  const fill = el("rect", { class: "trig-fill", x: b.x, y: b.y + b.h, width: b.w, height: 0, rx: 2 }, svg);
+  if (b.text) el("text", { class: "txt", x: b.x + b.w / 2, y: b.y + b.h + 8, "font-size": G.small }, svg).textContent = b.text;
+  E[name] = { fill, b };
+}
+function stick(name, s, dz, click) {
+  const gate = el("circle", { class: "gate", cx: s.x, cy: s.y, r: s.r }, svg);
+  el("circle", { class: "dz", cx: s.x, cy: s.y, r: s.r * dz / AXIS }, svg);       // reference only, never applied
+  const line = el("line", { class: "stick-line", x1: s.x, y1: s.y, x2: s.x, y2: s.y }, svg);
+  const dot = el("circle", { class: "stick-dot", cx: s.x, cy: s.y, r: Math.max(2.5, s.r * 0.2) }, svg);
+  E[name] = { gate, line, dot, s, click };
+}
+
+trigger("lt", G.lt); trigger("rt", G.rt);
+rect("lb", G.lb, "LB"); rect("rb", G.rb, "RB");
+stick("lstick", G.ls, DZ_L, "ls"); stick("rstick", G.rs, DZ_R, "rs");
+{
+  const { x, y, s } = G.dpad;
+  rect("up", { x: x - s / 2, y: y - 1.5 * s, w: s, h: s }, "", 2);
+  rect("down", { x: x - s / 2, y: y + 0.5 * s, w: s, h: s }, "", 2);
+  rect("left", { x: x - 1.5 * s, y: y - s / 2, w: s, h: s }, "", 2);
+  rect("right", { x: x + 0.5 * s, y: y - s / 2, w: s, h: s }, "", 2);
+}
+{
+  const { x, y, d, r } = G.face;
+  circle("y", x, y - d, r, "Y"); circle("x", x - d, y, r, "X"); circle("b", x + d, y, r, "B"); circle("a", x, y + d, r, "A");
+}
+if (G.back) { rect("back", G.back, ""); rect("start", G.start, ""); }
+const lamp = el("g", { class: "lamp" }, svg);
+const lampTitle = el("title", {}, svg);
+if (LABEL) el("text", { class: "label", x: G.label.x, y: G.label.y, "font-size": G.small }, svg).textContent = LABEL;
+const info = INFO && G.info ? el("text", { class: "info", x: G.info.x, y: G.info.y, "font-size": G.small }, svg) : null;
+
+// ── lamp: Phase 1 uses gray and green only ─────────────────────────
+// gray = no data (no server, no pad on the slot, stale). green = controller data is arriving — not "good", not "fast".
+let lampState = "";
+function setLamp(s) {
+  if (s === lampState) return;
+  lampState = s;
+  lamp.replaceChildren();
+  const { x, y, r } = G.lamp;
+  if (s === "green") el("circle", { class: "green", cx: x, cy: y, r }, lamp);
+  else if (s === "yellow") el("polygon", { class: "yellow",
+                                           points: `${x},${y - r * 1.15} ${x + r * 1.15},${y} ${x},${y + r * 1.15} ${x - r * 1.15},${y}` }, lamp);
+  else if (s === "red") el("rect", { class: "red", x: x - r, y: y - r, width: 2 * r, height: 2 * r }, lamp);
+  else el("circle", { class: "gray", cx: x, cy: y, r: r - 0.75 }, lamp);
+  lampTitle.textContent = s === "green" ? "controller data is arriving" : "no controller data";
+}
+
+// ── data ───────────────────────────────────────────────────────────
+let last = null, lastAt = -Infinity, latched = 0, queued = false, drawnAt = -Infinity;
+const LATCH_MS = 100;           // keep a short press for the next frame only if a frame is actually coming
+const ZERO = { btn: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0 };
+
+function pickSlot(pads) {
+  if (SLOT !== "auto") return SLOT;
+  return Object.keys(pads).sort()[0];          // lowest connected slot — says nothing about physical vs virtual
+}
+
+function onMessage(msg) {
+  last = msg; lastAt = performance.now();
+  const d = msg.pads[pickSlot(msg.pads)];
+  // a press shorter than a frame still shows for one frame — but while the page isn't painted (hidden tab or
+  // hidden OBS source) frames stop, and an unbounded latch would later light buttons nobody holds
+  if (lastAt - drawnAt > LATCH_MS) latched = 0;
+  if (d) latched |= d.btn;
+  if (!queued) { queued = true; requestAnimationFrame(draw); }
+}
+
+const unit = v => Math.max(-1, Math.min(1, v / AXIS));
+function drawStick(st, vx, vy, btn) {
+  const { s } = st, x = s.x + unit(vx) * s.r, y = s.y - unit(vy) * s.r;
+  st.line.setAttribute("x2", x); st.line.setAttribute("y2", y);
+  st.dot.setAttribute("cx", x); st.dot.setAttribute("cy", y);
+  st.gate.classList.toggle("on", !!(btn & BTN[st.click]));
+}
+function drawTrigger(t, v) {
+  const h = t.b.h * Math.max(0, Math.min(1, v / TRIG));
+  t.fill.setAttribute("y", t.b.y + t.b.h - h); t.fill.setAttribute("height", h);
+}
+
+function draw() {
+  queued = false;
+  drawnAt = performance.now();
+  const fresh = last !== null && performance.now() - lastAt < STALE_MS;
+  const pads = (fresh && last.pads) || {};
+  const slot = pickSlot(pads);
+  const d = slot !== undefined ? pads[slot] : undefined;
+  setLamp(d && d.status === "green" ? "green" : "gray");
+  root.classList.toggle("hidden", !!last && last.visible === false);
+
+  const v = d || ZERO;                          // stale or missing → neutral, never an old frame shown as live
+  const btn = d ? (v.btn | latched) : 0;
+  latched = 0;
+  for (const [name, e] of Object.entries(E.btn)) {
+    const on = !!(btn & BTN[name]);
+    e.shape.classList.toggle("on", on);
+    if (e.text) e.text.classList.toggle("on", on);
+  }
+  drawTrigger(E.lt, v.lt); drawTrigger(E.rt, v.rt);
+  drawStick(E.lstick, v.lx, v.ly, btn); drawStick(E.rstick, v.rx, v.ry, btn);
+
+  const n = Object.keys(pads).length;
+  if (info) info.textContent = d ? `slot ${slot} · source ${last.source === "demo" ? "demo" : "unknown"}` + (n > 1 ? ` · ${n} pads` : "")
+                                 : "no controller";
+  if (DEBUG) {
+    dbg.textContent = !fresh ? "no data from server" : !d ? `source ${last.source} · no pad on slot ${SLOT}` :
+      `source ${last.source} · slot ${slot} of [${Object.keys(pads).join(",")}] · pkt ${v.pkt} · missed ${v.missed}\n` +
+      `btn 0x${v.btn.toString(16).padStart(4, "0")}  lt ${v.lt}  rt ${v.rt}\n` +
+      `lx ${v.lx}  ly ${v.ly}  rx ${v.rx}  ry ${v.ry}`;
+  }
+}
+
+function connect() {
+  const es = new EventSource("/events");
+  es.onmessage = ev => { try { onMessage(JSON.parse(ev.data)); } catch (_) {} };
+  // EventSource reconnects by itself; staleness turns the lamp gray meanwhile
+}
+setInterval(() => { if (!queued) { queued = true; requestAnimationFrame(draw); } }, 250);
+draw();
+connect();
+</script>
+</body>
+</html>

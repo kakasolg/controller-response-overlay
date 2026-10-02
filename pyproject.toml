@@ -1,0 +1,15 @@
+[project]
+name = "controller-response-overlay"
+version = "0.1.0"
+description = "Read-only game controller overlay (buttons, triggers, sticks) with a small status lamp."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
