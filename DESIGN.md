@@ -46,7 +46,7 @@ dsr-bot에서 **가져온 것** (개념·짧은 코드 복사, 같은 저자·MI
 | hidapi | `hid_read`만이면 예 | 됨 | 됨 | report 단위 | output/feature report 쓰기 금지 |
 | DirectInput8 | NONEXCLUSIVE·BACKGROUND일 때만 | 됨 | 일부 | 폴링 | Xbox 패드 LT/RT 한 축 — 가치 낮음 |
 | Windows.Gaming.Input | 예 | 데스크톱 앱 무포커스 시 UNKNOWN | VID/PID | Timestamp | |
-| GameInput | 예 | focus policy에 따름, UNKNOWN | VID/PID | µs timestamp | C/C++ 전용 — Phase 3 후보 |
+| GameInput | 예 | focus policy에 따름, UNKNOWN | VID/PID | µs timestamp | C/C++ 전용 — Phase 3 후보 (Design only) |
 | SDL3 / pygame-ce | 조건부 | 힌트 필요 | 됨 | 이벤트 | HIDAPI 드라이버가 PS4/PS5/Switch에 output report(LED 등)를 보냄 → 끄지 않으면 읽기 전용 아님 |
 | 브라우저 Gamepad API | 예 | OBS CEF에서 실무상 동작, 보장 UNKNOWN | XInput 패드는 VID/PID 없음 | timestamp | 설치 불필요 |
 
@@ -91,8 +91,9 @@ Phase 1 구현은 `debug=1`에서 이 건너뜀 수(`missed`)를 보여 줄 뿐,
 렌더러는 웹 페이지 하나(브라우저 — OBS 소스로 쓰는 건 미검증), 단독 창은 Phase 1b(미구현). reader가 죽으면 렌더러는 메시지가
 1.5 s 넘게 끊긴 뒤 Gray·중립 표시 (0.25 s 확인 주기가 더해져 실측 약 1.6–1.7 s, §11), 렌더러가 죽어도 reader는 그대로. OBS plugin은 MVP에 넣지 않는다 (input-overlay는 GPL-2.0 — 참고만).
 
-**지연에 영향을 주지 않는 규칙:** SetState·독점 open·훅·DLL 주입·포커스 변경 없음. 빈 slot은 2 s마다. 120 Hz(임시) 폴링,
-프로세스 우선순위 below-normal. 렌더러는 메시지가 올 때와 0.25 s마다만 그리고, 페이지가 안 보이면 그리지 않는다.
+**지연에 영향을 주지 않기 위한 규칙 (설계 — 그 효과는 측정하지 않음, Unknown):** SetState·독점 open·훅·DLL 주입·포커스 변경 없음.
+빈 slot은 2 s마다. 120 Hz(임시) 폴링 — 현재 구현 설정일 뿐 정확한 event timing·latency 측정이 아니다. 프로세스 우선순위
+below-normal. 렌더러는 메시지가 올 때와 0.25 s마다만 그리고, 페이지가 안 보이면 그리지 않는다(최소화 중 실제로 멈추는지는 Untested).
 
 ## 4. UI
 
@@ -220,22 +221,67 @@ reader 정지에서 Gray가 되는가" — 만 확인했다.
   창을 최소화했을 때 그리기가 실제로 멈추는지, 모든 축의 ±32767 가장자리.
 - 이 도구는 원리상 재지 않는 것: 하드웨어 polling rate, 입력 지연, 게임 지연, FPS, 패드 상태(health), 물리/가상 장치 구분.
 
-## 11. Phase 1 수동 검증 결과 (`9b516b0`)
+## 11. Phase 1 수동 검증 결과 (manual result, 2026-10-03, 코드 `9b516b0`)
 
-한 환경에서 한 번 실행한 결과다. 이 밖의 환경은 미검증이다.
+이 절은 **설계가 아니라 한 번의 수동 실행에서 관찰한 결과**다. 라벨: **Verified**(확인함) · **Observed**(그 실행에서 잰 값,
+보장 아님) · **Untested**(안 해 봄) · **Unknown**(분리·측정 못 함) · **Design only**(구현 안 됨). 이 환경 밖은 Untested.
 
-- 환경: Windows 10.0.26200, Python 3.12.10, Xbox Series 패드 1개 · Bluetooth · XInput slot 0, Steam 실행 중이지만 이 패드의
-  Steam Input은 꺼짐, 리매퍼·가상 패드·dsr-bot·게임·OBS는 실행 안 함, 렌더러는 Claude 데스크톱 앱 내장 브라우저(Chromium 기반).
-- 오프라인 테스트 23개 통과.
-- demo: full·compact·streamer, 가짜 끊김(약 4 s Gray, 입력 중립) → Green, 새로고침, 서버 정지 → 1.68 s 뒤 Gray·중립.
-- 실제 패드 매핑: 사람이 정해진 순서로 누른 A, B, X, Y, LB, RB, View, Menu, L3, R3, D-pad 4방향 + 위+오른쪽이 그 순서 그대로
-  해당 비트로 보임. LT·RT 최대 255(중간값 포함). 양쪽 스틱 상하좌우 방향 일치(위 = +y, 왼쪽 = −x). 가장자리 도달은 "위"만 ±32767,
-  나머지 방향은 0.82–0.96.
-- 렌더링 일치: 한 기록 구간의 4,993 프레임에서 그린 버튼과 원시 상태가 3 프레임 이상 다른 경우 0.
-- compact·streamer를 실제 입력으로 확인. 창 최소화 → 복원 뒤 누르지 않은 버튼이 켜진 것 없음 (최소화 중 그리기가 멈췄는지는 기록 안 함).
-- 끊김·재연결: 패드 전원 끔 → Gray, 켬 → 같은 slot 0에서 Green, 이후 A 정상. 끔 → 다시 Green까지 12 s였지만 사용자 대기 5 s와
-  BT 재연결이 포함돼 overlay 몫은 분리 안 됨.
-- 빈 slot(`slot=3`) → Gray, `no controller`.
-- 격리: 렌더러 탭 닫음 → reader 계속 Green 상태 제공. reader 강제 종료 → 페이지 1.6 s 뒤 Gray·중립, 그동안 `joy.cpl`이 패드 입력을
-  그대로 봄. reader 재시작 → 열린 페이지가 약 1.8 s 뒤 다시 Green. 콘솔엔 서버가 꺼진 동안의 재연결 실패(네트워크 오류)만 있고 스크립트 오류 없음.
-- reader는 두 번 다 강제 종료(프로세스 kill)로 멈췄다. Ctrl+C 종료 경로는 이 실행에서 따로 확인하지 않았다.
+### 11.1 환경
+
+| 항목 | 값 |
+|---|---|
+| OS / Python | Windows 10.0.26200, Python 3.12.10 |
+| 패드 | Xbox Series 패드 1개, Bluetooth, XInput slot 0 |
+| 다른 소프트웨어 | Steam 실행 중, 이 패드의 Steam Input은 꺼짐. mapper·가상 패드·dsr-bot·게임·OBS 실행 안 함 |
+| 렌더러 | Claude 데스크톱 앱 내장 브라우저 |
+| 서버 | `127.0.0.1:47820`에서만 listen |
+| 오프라인 테스트 | 23 passed |
+
+### 11.2 Verified
+
+- demo: full·compact·streamer, 가짜 끊김 → Gray(입력 중립) → Green, 새로고침.
+- 매핑: 사람이 정해진 순서로 하나씩 누른 A, B, X, Y, LB, RB, View, Menu, L3, R3, D-pad 위·아래·왼쪽·오른쪽, 위+오른쪽 대각선이
+  그 순서대로 해당 입력으로 관찰됨.
+- LT·RT 모두 255 도달, 중간값도 관찰.
+- 양쪽 스틱 상하좌우가 기대한 방향으로 표시(위 = +y, 왼쪽 = −x).
+- compact·streamer를 실제 입력으로 확인.
+- 패드 전원 끔 → slot 0 Gray. Bluetooth 재연결 뒤 같은 slot 0에서 Green, A 입력 관찰.
+- 빈 slot(`slot=3`) → Gray, 켜진 버튼 없음.
+- reader/server 정지 → 페이지가 stale Gray·입력 중립으로 전환.
+- 렌더러 탭을 닫아도 reader 계속 동작.
+- reader 정지 뒤에도 Windows `joy.cpl`이 패드를 계속 인식.
+- 창 최소화 → 복원 뒤 누르지 않은 버튼이 켜진 것 없음.
+
+### 11.3 Observed — 설계값과 실측값
+
+모두 한 번의 실행에서 본 근삿값이다. latency 측정이나 성능 지표로 해석하지 않는다.
+
+| 항목 | 설계값 (configured / target) | 실측 (observed) | 메모 |
+|---|---|---|---|
+| reader 정지 → Gray·중립 | stale threshold 1.5 s | 마지막 update 뒤 약 1.6–1.7 s | threshold에 client 쪽 주기 확인(0.25 s)·그리기 시점이 더해짐. "1.5 s 이내" 보장 아님 |
+| 서버 재시작 → 열린 페이지 Green | (브라우저 EventSource 재연결에 맡김) | 약 1.8 s | |
+| 패드 전원 끔 → 다시 Green | 빈 slot 재확인 2 s | 전체 왕복 약 12 s | 사용자 대기 약 5 s와 Bluetooth 재연결 포함 — overlay 자체 몫은 **Unknown** |
+| raw 상태 vs 그린 버튼 | — | 약 4,993 draw frame에서 3 프레임 이상 불일치 0건 | raw XInput state와 overlay visual state의 정합성 관찰일 뿐, 물리 입력 → 게임·화면 end-to-end latency 측정이 아님 |
+| 스틱 가장자리 | ±32767 | "위"만 도달, 나머지 방향은 0.82–0.96 | 모든 방향 full-scale은 Untested |
+
+참고: reader는 두 번 다 강제 종료(프로세스 kill)로 멈췄고, Ctrl+C 종료 경로는 따로 확인하지 않았다. 서버가 꺼진 동안 콘솔엔
+재연결 실패(네트워크 오류)만 있었고 스크립트 오류는 없었다.
+
+### 11.4 Untested · Unknown
+
+- Untested: OBS Browser Source(호환성·OBS 안의 투명 배경·scene 전환·장시간), Ctrl+Shift+F10 단축키의 실제 하드웨어 동작,
+  Steam Input 켜짐, mapper·가상 패드 동시 실행, 실제 게임과 함께 돌렸을 때 게임 입력 영향, 다른 브라우저, 여러 패드·slot,
+  다른 패드 모델, 유선·무선 동글 연결, 30분 이상 리소스·안정성, 최소화 중 그리기가 실제로 멈추는지, 모든 스틱 방향의 full-scale.
+- Unknown / 이 도구가 재지 않는 것: end-to-end latency, 입력 속도, 입력·패드 상태(health), 물리/가상 출처 구분,
+  재연결 지연 중 overlay 몫.
+
+## 12. 한계 (Limitations)
+
+| 한계 | 뜻 |
+|---|---|
+| `XInputGetState`를 읽는 read-only observer일 뿐 | slot 상태를 보여 줄 뿐, 그 상태가 어디서 왔는지(물리 패드, Steam Input·mapper가 만든 변환·가상 XInput, 게임 출력, 다른 중간 계층) 가리지 않는다 |
+| 게임 입력 비간섭은 게임 없이 증명할 수 없음 | 설계상 간섭 경로(쓰기·훅·주입·독점 open)는 없지만(소스 스캔), 실제 게임으로는 확인하지 않았다 |
+| `joy.cpl` 확인의 범위 | reader 종료 뒤에도 Windows가 패드를 인식한다는 관찰일 뿐 — 모든 게임·안티치트·입력 경로에서의 안전을 보장하지 않는다 |
+| 브라우저 결과의 일반화 불가 | 앱 내장 브라우저 결과를 OBS나 다른 브라우저로 넓히지 않는다 |
+| 120 Hz 폴링은 구현 설정 | 정확한 event timing이나 latency 측정이 아니다. 시각은 overlay가 읽은 시점이고, 두 번 읽는 사이에 생겼다 사라진 상태는 놓친다 |
+| Phase 1b·2·3은 Design only | 단독 창, RAW/OUTPUT 구분, source classification, Yellow/Red, baseline, timing 관련 지표는 모두 구현·검증되지 않았다 |
