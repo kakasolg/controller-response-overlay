@@ -51,8 +51,10 @@ Local file), keep OBS's default custom CSS, and use for example `http://127.0.0.
 [Verified so far](#verified-so-far) for what was and wasn't checked. Keep the reader (`python -m cro`)
 running for as long as OBS shows the source; when it stops, the overlay turns gray with neutral inputs.
 
-**Hide/show hotkey: implemented, not verified on hardware.** The reader polls Ctrl+Shift+F10 (no keyboard hook) and is
-meant to toggle visibility on every open page. It has only been checked by an offline unit test, not on a real keyboard.
+**Hide/show hotkey: Ctrl+Shift+F10 — verified with OBS in the foreground.** The reader polls the key combo (no
+keyboard hook) and toggles visibility on every open page. In a manual check (OBS 32.2.2 in the foreground) each press
+toggled the overlay exactly once: hidden, then shown again. The keys are not consumed, so the focused app also receives
+them; pressing it while a game is in the foreground has not been checked.
 
 ### Page options (query string)
 
@@ -132,7 +134,7 @@ was kept, and it is not evidence about game input or performance.
 
 - OBS: runs of 30 minutes or more (the planned long run was not done), source hide/show, other OBS versions, timing of
   the gray/green transitions inside OBS
-- Ctrl+Shift+F10 hotkey on real hardware
+- Ctrl+Shift+F10 hotkey with a game in the foreground (whether the game reacts to the keys)
 - Steam Input on
 - Running alongside a mapper or virtual controller
 - Whether running it next to a real game leaves that game's input unaffected — no game was run
@@ -202,7 +204,8 @@ XInput이 보고하는 패드 상태(버튼, 트리거, 스틱 방향과 세기)
 Steam Input 꺼짐 · 앱 내장 브라우저 한 환경뿐입니다. reader가 멈추면 페이지가 회색·중립으로 바뀌는 데 설계값은 1.5 s,
 실측은 약 1.6–1.7 s였습니다. 같은 환경에서 OBS 32.2.2 Browser Source도 확인했습니다(투명 배경, 입력 표시, 세 레이아웃,
 장면 전환, reader·OBS 재시작 후 복구, 빈 slot). 실제 다크소울 녹화 한 번에서도 정확히 표시됐다는 사용자 보고가 있습니다.
-OBS 30분 이상 장시간, 단축키, 다른 패드·연결 방식·브라우저·OBS 버전, Steam Input·매퍼 공존, 게임 입력에 미치는 영향은
+Ctrl+Shift+F10 단축키는 OBS를 앞에 둔 상태에서 숨기기·보이기가 한 번씩 정확히 동작했습니다(게임을 앞에 둔 상태는 미확인).
+OBS 30분 이상 장시간, 게임을 앞에 둔 상태의 단축키, 다른 패드·연결 방식·브라우저·OBS 버전, Steam Input·매퍼 공존, 게임 입력에 미치는 영향은
 미검증입니다. 설계 문서는 [DESIGN.md](DESIGN.md)에 있습니다(Phase 1b·2·3은 설계만 있음).
 
 ## License
