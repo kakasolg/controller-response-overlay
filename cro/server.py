@@ -10,6 +10,8 @@ site can't read the stream through DNS rebinding. GET only: nothing here changes
 from __future__ import annotations
 
 import json
+import socket
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -108,8 +110,20 @@ def _handler(hub: Hub, page: Optional[bytes]):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    """One reader per port. HTTPServer turns SO_REUSEADDR on, and on Windows that lets a second process bind a port
+    that is already listening — two readers then share it silently, each with its own hide/show state. Reuse is off
+    here and, on Windows, the port is taken exclusively, so a second start fails with "cannot listen"."""
+
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def make_server(hub: Hub, port: int = DEFAULT_PORT, page: Optional[bytes] = None) -> ThreadingHTTPServer:
     """page: fixed bytes (tests), or None to read web/overlay.html on each request."""
-    srv = ThreadingHTTPServer((HOST, port), _handler(hub, page))
-    srv.daemon_threads = True
-    return srv
+    return _Server((HOST, port), _handler(hub, page))

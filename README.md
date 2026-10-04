@@ -35,6 +35,12 @@ Requires Windows and Python 3.12 or newer (verified only with 3.12.10). It uses 
 python -m cro
 ```
 
+Or double-click `run-overlay.bat` in the repository folder: it checks for Python 3.12+ on PATH, starts the reader in
+its own window, and keeps the window open if something fails. It passes options through
+(`run-overlay.bat --demo`). Close the window or press Ctrl+C to stop; the overlay then turns gray. Because it runs in
+its own window, it keeps going for as long as you leave it open. Only one reader can use a port: starting a second
+one on the same port stops with `cannot listen on 127.0.0.1:47820` instead of running alongside the first.
+
 Then open `http://127.0.0.1:47820/` in a browser. Pick the slot explicitly with `?slot=N`; `http://127.0.0.1:47820/state`
 lists which slots currently have state.
 

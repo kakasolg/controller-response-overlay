@@ -75,3 +75,27 @@ def test_events_stream_pushes_snapshots(served):
     second = r.fp.readline()
     assert json.loads(second[6:])["visible"] is False
     c.close()
+
+
+def test_second_server_on_a_busy_port_fails(served):
+    hub, port = served
+    with pytest.raises(OSError):
+        make_server(Hub(None, "second"), port=port, page=b"x")
+
+
+def test_restart_on_same_port_after_an_open_stream_closes():
+    hub = Hub(None, "first")
+    srv = make_server(hub, port=0, page=b"x")
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    c = http.client.HTTPConnection(HOST, port, timeout=5)
+    c.request("GET", "/events", headers={"Host": f"127.0.0.1:{port}"})
+    r = c.getresponse()
+    r.fp.readline()                                    # stream is open
+    hub.close()                                        # server ends the stream first -> its side goes to TIME_WAIT
+    srv.shutdown()
+    srv.server_close()
+    c.close()
+    again = make_server(Hub(None, "restarted"), port=port, page=b"x")
+    again.server_close()
