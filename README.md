@@ -7,8 +7,8 @@ to, remap or inject controller input (checked by a source-scan test).
 ![full layout, demo input](docs/demo-full.jpg)
 
 **Status: Phase 1 (MVP).** Phase 1 has been manually verified as a read-only XInput slot viewer for one Xbox Series
-controller over Bluetooth, using XInput slot 0 and the Claude desktop app's built-in browser — see
-[Verified so far](#verified-so-far). Everything outside that is untested. See [DESIGN.md](DESIGN.md) (Korean) for the
+controller over Bluetooth, using XInput slot 0, in the Claude desktop app's built-in browser and as an OBS 32.2.2
+Browser Source — see [Verified so far](#verified-so-far). Everything outside that is untested. See [DESIGN.md](DESIGN.md) (Korean) for the
 design; later phases there are **design only** (not implemented).
 
 Labels used below: **Verified** = checked in the manual run; **Observed** = a measured value from that run, not a
@@ -45,10 +45,11 @@ python -m cro --demo
 `--demo` uses a fake pad on slot 0, so you can preview the overlay with no controller. Every 30 s the fake pad unplugs
 for 3 s, so you can see the gray lamp too. (Only tried on Windows.)
 
-**OBS Browser Source: intended use, untested.** Using the page as an OBS Browser Source is a design goal (the page
-background is transparent), but no manual test has been done in OBS. OBS compatibility, transparent-background
-behaviour in OBS, scene switching and long runs are all untested. If you try it, `http://127.0.0.1:47820/?layout=streamer`
-at about 560×330 is only a starting-point example, not a verified recommendation.
+**OBS Browser Source: verified in OBS 32.2.2 (one environment).** Add a Browser Source with the localhost URL (not
+Local file), keep OBS's default custom CSS, and use for example `http://127.0.0.1:47820/?slot=0&layout=streamer` at
+560×330 — the size used in the test, a starting point rather than a requirement. See
+[Verified so far](#verified-so-far) for what was and wasn't checked. Keep the reader (`python -m cro`)
+running for as long as OBS shows the source; when it stops, the overlay turns gray with neutral inputs.
 
 **Hide/show hotkey: implemented, not verified on hardware.** The reader polls Ctrl+Shift+F10 (no keyboard hook) and is
 meant to toggle visibility on every open page. It has only been checked by an offline unit test, not on a real keyboard.
@@ -94,6 +95,26 @@ One manual run on 2026-10-03 against commit `9b516b0` (code unchanged since; lat
 - [x] After the reader was stopped, Windows `joy.cpl` still recognised the controller
 - [x] Window minimized and restored → no phantom buttons on return
 
+**OBS Browser Source (OBS 32.2.2)** — 2026-10-03, same code, Windows, Python, controller, slot and Steam Input state as
+above; no game, mapper or virtual controller running during the test.
+
+- [x] Localhost URL (not Local file), OBS default custom CSS, over a light-gray Color source: background transparent,
+  no black rectangle, no visible halo, no clipping or scrollbars
+- [x] Inputs shown in the OBS preview: buttons, D-pad including up+right, LT/RT half and full, both sticks in four
+  directions — partly from captured preview frames, partly from the tester watching OBS, cross-checked against
+  `/state`
+- [x] Layouts: full, compact, and streamer at 560×330; inputs shown and cleared on release
+- [x] Switching to another scene and back three times → green again, a new A press shown
+- [x] Reader stopped with OBS open → gray with neutral inputs; reader restarted → green again on its own
+- [x] OBS closed and reopened with the reader running → reader unaffected; the source reconnected and a new A press
+  was shown
+- [x] Empty slot (`slot=3`) → gray, `no controller`, nothing lit
+- Readability note: on a light background the thin outlines, deadzone rings and small labels are hard to see.
+
+Afterwards the tester used the overlay (streamer layout, bottom-right) in one real OBS recording of Dark Souls
+Remastered and reported that it displayed the inputs correctly. That is the tester's observation only; no log or capture
+was kept, and it is not evidence about game input or performance.
+
 **Observed values** (one run; approximate; not guarantees and not latency measurements)
 
 - Raw XInput state vs. drawn buttons: no mismatch lasting 3 or more frames in ~4,993 observed draw frames. This is an
@@ -109,7 +130,8 @@ One manual run on 2026-10-03 against commit `9b516b0` (code unchanged since; lat
 
 **Untested**
 
-- OBS Browser Source (compatibility, transparency in OBS, scene switching, long runs)
+- OBS: runs of 30 minutes or more (the planned long run was not done), source hide/show, other OBS versions, timing of
+  the gray/green transitions inside OBS
 - Ctrl+Shift+F10 hotkey on real hardware
 - Steam Input on
 - Running alongside a mapper or virtual controller
@@ -138,7 +160,7 @@ One manual run on 2026-10-03 against commit `9b516b0` (code unchanged since; lat
   no hooks, no DLL injection, no access to other processes (by design; checked by a source scan in the tests).
 - Not interfering with game input cannot be proven without a game; the `joy.cpl` check above only shows Windows still
   recognised the controller after the reader stopped. It is not a guarantee for every game, anti-cheat or input path.
-- Results from the built-in browser do not carry over to OBS or other browsers.
+- Results from the built-in browser and OBS 32.2.2 do not carry over to other browsers or other OBS versions.
 - Polling runs at 120 Hz as a current implementation setting. Times are when this overlay read the state, not when the
   controller sent it, and polling misses states that come and go between two reads (`debug=1` counts those from XInput
   packet-number gaps). This is not exact event timing or a latency measurement.
@@ -178,7 +200,9 @@ XInput이 보고하는 패드 상태(버튼, 트리거, 스틱 방향과 세기)
 
 수동 검증(2026-10-03, 코드 `9b516b0`)은 Windows 10.0.26200 · Python 3.12.10 · Xbox Series 패드(Bluetooth, slot 0) ·
 Steam Input 꺼짐 · 앱 내장 브라우저 한 환경뿐입니다. reader가 멈추면 페이지가 회색·중립으로 바뀌는 데 설계값은 1.5 s,
-실측은 약 1.6–1.7 s였습니다. OBS, 단축키, 다른 패드·연결 방식·브라우저, Steam Input·매퍼 공존, 게임 입력에 미치는 영향은
+실측은 약 1.6–1.7 s였습니다. 같은 환경에서 OBS 32.2.2 Browser Source도 확인했습니다(투명 배경, 입력 표시, 세 레이아웃,
+장면 전환, reader·OBS 재시작 후 복구, 빈 slot). 실제 다크소울 녹화 한 번에서도 정확히 표시됐다는 사용자 보고가 있습니다.
+OBS 30분 이상 장시간, 단축키, 다른 패드·연결 방식·브라우저·OBS 버전, Steam Input·매퍼 공존, 게임 입력에 미치는 영향은
 미검증입니다. 설계 문서는 [DESIGN.md](DESIGN.md)에 있습니다(Phase 1b·2·3은 설계만 있음).
 
 ## License

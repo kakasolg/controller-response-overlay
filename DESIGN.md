@@ -88,7 +88,7 @@ Phase 1 구현은 `debug=1`에서 이 건너뜀 수(`missed`)를 보여 줄 뿐,
 | 장애 격리 | 별도 프로세스 | reader·렌더러 따로 죽음 | **OBS 안 — 죽으면 방송이 끊김** |
 
 **구조 (Phase 1 구현):** reader 프로세스 하나(XInput 읽기 전용, `127.0.0.1` SSE) + 판단 없는 렌더러들.
-렌더러는 웹 페이지 하나(브라우저 — OBS 소스로 쓰는 건 미검증), 단독 창은 Phase 1b(미구현). reader가 죽으면 렌더러는 메시지가
+렌더러는 웹 페이지 하나(브라우저 · OBS 32.2.2 Browser Source에서 확인, §11.5), 단독 창은 Phase 1b(미구현). reader가 죽으면 렌더러는 메시지가
 1.5 s 넘게 끊긴 뒤 Gray·중립 표시 (0.25 s 확인 주기가 더해져 실측 약 1.6–1.7 s, §11), 렌더러가 죽어도 reader는 그대로. OBS plugin은 MVP에 넣지 않는다 (input-overlay는 GPL-2.0 — 참고만).
 
 **지연에 영향을 주지 않기 위한 규칙 (설계 — 그 효과는 측정하지 않음, Unknown):** SetState·독점 open·훅·DLL 주입·포커스 변경 없음.
@@ -215,8 +215,8 @@ reader 정지에서 Gray가 되는가" — 만 확인했다.
 - Steam Input이 켜져 있으면 XInput에 보이는 건 Steam의 가상 출력 — 표시는 되지만 RAW가 아니다.
 - 게임이 어느 slot을 읽는지. 다른 가상 패드가 같이 켜져 있으면 slot이 2개 → `slot=` 옵션으로 고르고 추측하지 않는다.
 - 전용 전체화면에선 단독 창(Phase 1b)이 가려진다.
-- OBS Browser Source에서 장시간 동작·CPU 사용은 아직 측정 안 함.
-- §11 검증 뒤에도 남은 것: OBS Browser Source 자체, 다른 브라우저, 단축키(Ctrl+Shift+F10)의 실제 하드웨어 동작, Steam Input 켜짐,
+- OBS Browser Source에서 장시간(30분 이상) 동작·CPU·메모리는 아직 측정 안 함 (§11.5).
+- §11 검증 뒤에도 남은 것: OBS 장시간·다른 OBS 버전, 다른 브라우저, 단축키(Ctrl+Shift+F10)의 실제 하드웨어 동작, Steam Input 켜짐,
   리매퍼·가상 패드(ViGEm 등) 공존, 여러 slot, 유선·동글 연결, 다른 패드, 장시간 CPU·메모리, 실제 게임 입력에 미치는 영향,
   창을 최소화했을 때 그리기가 실제로 멈추는지, 모든 축의 ±32767 가장자리.
 - 이 도구는 원리상 재지 않는 것: 하드웨어 polling rate, 입력 지연, 게임 지연, FPS, 패드 상태(health), 물리/가상 장치 구분.
@@ -269,11 +269,30 @@ reader 정지에서 Gray가 되는가" — 만 확인했다.
 
 ### 11.4 Untested · Unknown
 
-- Untested: OBS Browser Source(호환성·OBS 안의 투명 배경·scene 전환·장시간), Ctrl+Shift+F10 단축키의 실제 하드웨어 동작,
+- Untested: OBS 30분 이상 장시간·소스 숨기기/보이기·다른 OBS 버전·OBS 안에서의 Gray/Green 전환 시간(§11.5), Ctrl+Shift+F10 단축키의 실제 하드웨어 동작,
   Steam Input 켜짐, mapper·가상 패드 동시 실행, 실제 게임과 함께 돌렸을 때 게임 입력 영향, 다른 브라우저, 여러 패드·slot,
   다른 패드 모델, 유선·무선 동글 연결, 30분 이상 리소스·안정성, 최소화 중 그리기가 실제로 멈추는지, 모든 스틱 방향의 full-scale.
 - Unknown / 이 도구가 재지 않는 것: end-to-end latency, 입력 속도, 입력·패드 상태(health), 물리/가상 출처 구분,
   재연결 지연 중 overlay 몫.
+
+### 11.5 OBS Browser Source (manual result, 2026-10-03, OBS 32.2.2)
+
+같은 코드·Windows·Python·패드·slot·Steam Input 상태. 테스트 동안 게임·mapper·가상 패드는 실행하지 않음. 별도 장면에
+밝은 회색 Color source를 깔고 그 위에 Browser source(localhost URL, Local file 아님, OBS 기본 custom CSS).
+
+| 항목 | 결과 |
+|---|---|
+| 렌더링 | Verified — 배경 투명, 검은 사각형·눈에 띄는 halo·잘림·스크롤바 없음. 밝은 배경에선 얇은 테두리·deadzone 고리·작은 글씨가 잘 안 보임(대비 문제, alpha 문제 아님) |
+| 입력 표시 | Verified — 버튼, D-pad(위+오른쪽 포함), LT/RT 절반·끝, 양쪽 스틱 4방향. 일부는 미리보기 캡처, 일부는 사용자 육안 확인, `/state` 기록과 대조 |
+| 레이아웃 | Verified — full, compact, streamer(560×330). 누르면 표시되고 떼면 꺼짐 |
+| 장면 전환 3회 | Verified — 돌아올 때마다 Green, 새 A 입력 표시 |
+| reader 재시작 | Verified — 멈추면 Gray·중립, 다시 켜면 저절로 Green. 전환 시간은 OBS 안에서 재지 못함(Unknown) |
+| OBS 재시작 | Verified — reader 영향 없음, 소스가 다시 연결되고 새 A 입력 표시 |
+| 빈 slot(`slot=3`) | Verified — Gray, `no controller`, 켜진 버튼 없음 |
+| 30분 장시간 | 실행 안 함 → Unknown |
+| 실제 녹화 | 사용자 보고 — 다크소울 녹화 한 번에서 정확히 표시됐다고 함. 기록·캡처 없음. 게임 입력·성능에 대한 증거가 아님 |
+
+참고: 테스트 중 패드가 한 번 XInput에서 사라졌다가 사용자가 다시 켠 뒤 돌아왔다. 원인은 Unknown(overlay는 읽기만 함).
 
 ## 12. 한계 (Limitations)
 
@@ -282,6 +301,6 @@ reader 정지에서 Gray가 되는가" — 만 확인했다.
 | `XInputGetState`를 읽는 read-only observer일 뿐 | slot 상태를 보여 줄 뿐, 그 상태가 어디서 왔는지(물리 패드, Steam Input·mapper가 만든 변환·가상 XInput, 게임 출력, 다른 중간 계층) 가리지 않는다 |
 | 게임 입력 비간섭은 게임 없이 증명할 수 없음 | 설계상 간섭 경로(쓰기·훅·주입·독점 open)는 없지만(소스 스캔), 실제 게임으로는 확인하지 않았다 |
 | `joy.cpl` 확인의 범위 | reader 종료 뒤에도 Windows가 패드를 인식한다는 관찰일 뿐 — 모든 게임·안티치트·입력 경로에서의 안전을 보장하지 않는다 |
-| 브라우저 결과의 일반화 불가 | 앱 내장 브라우저 결과를 OBS나 다른 브라우저로 넓히지 않는다 |
+| 브라우저 결과의 일반화 불가 | 앱 내장 브라우저·OBS 32.2.2 결과를 다른 브라우저나 다른 OBS 버전으로 넓히지 않는다 |
 | 120 Hz 폴링은 구현 설정 | 정확한 event timing이나 latency 측정이 아니다. 시각은 overlay가 읽은 시점이고, 두 번 읽는 사이에 생겼다 사라진 상태는 놓친다 |
 | Phase 1b·2·3은 Design only | 단독 창, RAW/OUTPUT 구분, source classification, Yellow/Red, baseline, timing 관련 지표는 모두 구현·검증되지 않았다 |
